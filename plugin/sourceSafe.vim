@@ -1,6 +1,6 @@
 " Author: David Eggum <davide@simutech.com>
-" Last Update: Jul 16 2001
-" Version: 1.1
+" Last Update: Jul 17 2001
+" Version: 1.1a
 " 
 " sourceSafe.vim - A simple script that interfaces with the MS VSS command
 " line.  This script works on the current file opened and is meant to only
@@ -162,9 +162,15 @@ endfunction
 
 " execute the SS command, and echo the results to the vim window.
 function! VSSDo(cmd_args)
+   " exec "!ss ".a:cmd_args." ".SSName(expand("%:p"))." -GL".expand("%:p:h")
    let sFull = system("ss ".a:cmd_args." ".SSName(expand("%:p"))." -GL".expand("%:p:h"))
+
    let sMatch = matchstr(sFull,".* is already checked out, continue.\\{-1,}\n")
    let iLen = strlen(sMatch)
+   if (iLen == 0)
+      let sMatch = matchstr(sFull,".* has changed. Undo check out and lose changes.\\{-1,}\n")
+      let iLen = strlen(sMatch)
+   endif
    if (iLen > 0)
       let sLine = strpart(sFull,iLen,strlen(sFull)-iLen)
    else
@@ -199,8 +205,8 @@ nmap ,co :SS Checkout -I-Y<cr>
 " Check in current file
 nmap ,ci :SS Checkin<cr>
 
-" Guess
-nmap ,cu :SS Undocheckout<cr>
+" Guess.  Be careful, you will lose any changes you've made!
+nmap ,cu :SS Undocheckout -I-Y<cr>
 
 " Get the latest version of this file.  Does not lock file
 nmap ,cg :SS Get<cr>
