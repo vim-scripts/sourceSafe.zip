@@ -1,19 +1,25 @@
 " Author: David Eggum <davide@simutech.com>
-" Last Update: Jul 17 2001
-" Version: 1.1a
+" Last Update: Jul 23 2001
+" Version: 1.2
 " 
-" sourceSafe.vim - A simple script that interfaces with the MS VSS command
-" line.  This script works on the current file opened and is meant to only
-" perform frequently used tasks such as checkin, checkout, get current file,
-" check differences and so on.  The current lock status can also be displayed
-" in the vim window; examples of placing it in the ruler are provided below.
+" sourceSafe.vim - Interfaces with the MS VSS command line.  This script works
+" on the current file opened and is meant to only perform frequently used
+" tasks such as checkin, checkout, get current file, check differences and so
+" on.  The current lock status can also be displayed in the vim window;
+" examples of placing it in the ruler are provided below.
 " 
 " Setup: Two settings under the "CONFIGURATION" section below must first be
-" customized for your environment.  The third setting (rulerformat) is optional.
+" customized for your environment.  The rest of the settings are cosmetic.
 "
 " Usage: See the "COMMANDS" section below for how to use this script.  
 "
 " Updates:
+" 1.2 - Diffing the file with the latest version in VSS now takes advantage of
+"       Vim's built-in diff feature.
+"     - Added new lock status mode. (Daniel Einspanjer)
+"     - Added extra lock information (old) and (exc). (Daniel Einspanjer)
+"     - Added "!" (bang) switch to all commands for raw interaction with VSS.
+" 1.1a- Fixed hang with Undocheckout when the current file has changed.
 " 1.1 - The current lock status is now available from the VSSGetStatus()
 "       function.  It looks really good in the ruler!  Samples are provided
 "       below.  Also see :help rulerformat.
@@ -22,11 +28,9 @@
 " 1.0 - Initial release
 
 " Todo:
-"  - Take advantage of the built-in diff util!  ...Although VSS's "View" command
-"    doesn't obey the -O switch... suggestions anyone on how to get around
-"    this?
+"  - show lock status in Select Buffer list
 "
-" Please send me any improvements you make so they can be included!
+" Send any improvements you would like to have included!
 
 " --- CONFIGURATION ---
 
@@ -64,9 +68,23 @@ let vssTree=".*dev[0-9.]*"
 " let vssTree="C:\\dev"
 " let vssTree="C:/dev"
 
+" The following flag will change the behavior of VSSGetStatus() to show
+" all users who have the file checked out, or only your status.
+let ssShowAllLocks=1
+
+" Change this to your username.  Note that VSS is case sensitive!  This
+" setting is used when ssShowAllLocks=0
+let ssUserName="Davide"
+
+" set to 1 to display outdated (old) or exclusive (exc) lock status.
+let ssShowExtra=0
+
+" When using the built-in diff feature, set this to 1 to split the windows
+" vertically, set to 0 to split horizontally.
+let ssDiffVertical=1
 
 " The current lock status is available from the VSSGetStatus() command.  A
-" really good place to put this info is in the ruler, like so: 
+" really useful place to put this info is in the ruler, like so: 
 "
 " set rulerformat=%{VSSGetStatus()}
 "
@@ -74,20 +92,20 @@ let vssTree=".*dev[0-9.]*"
 " command (see COMMANDS section below)
 "
 " The following works well; change it to your liking.
-set rulerformat=%60(%=%{VSSGetStatus()}%)\ %5l,%-4c\ %3p%%
+set rulerformat=%60(%=%{VSSGetStatus()}%)\ %4l,%-3c\ %3p%%
 
 " --- END CONFIGURATION ---
 
-au! BufRead * call VSSUpdateStatus()
+au! BufRead * SSStatus
 
 let b:checked_out_status = ""
 
-function! SSName(filename)
+function s:GetSSName(filename)
    let ssfile = substitute(a:filename,g:vssTree,"\$","")
    return substitute(ssfile,"\\","/","g")
 endfunction
 
-function! VSSGetStatus()
+function VSSGetStatus()
    if exists("b:checked_out_status")
       return b:checked_out_status
    else
@@ -98,15 +116,15 @@ endfunction
 let g:vss_debug = 0
 
 " get the current lock status from VSS and place it in b:checked_out_status
-function! VSSUpdateStatus()
-   let sFull = system("ss Status ".SSName(expand("%:p")))
-   let file = expand("%:t")
-   if g:vss_debug
-      echo "returned: ".sFull
+function s:UpdateStatus(bang,cmd_args)
+   let sCmd = "ss Status ".a:cmd_args." ".s:GetSSName(expand("%:p"))
+   if a:bang == "!" " Raw VSS interaction
+      exec "!".sCmd
+      return
    endif
+
+   let sFull = system(sCmd)
    let sLine = sFull
-   let iStart = 0
-   let sUsers = ""
    if (match(sFull,"No checked out files found.") == 0)
       let b:checked_out_status = "Not Locked"
       return b:checked_out_status
@@ -121,38 +139,70 @@ function! VSSUpdateStatus()
    endif
 
    " Quirk: VSS truncates files over 19 characters long
-   let file = strpart(file,0,19)
-   if g:vss_debug
-      echo "file: ".file."\n"
-   endif
+   let file = strpart(expand("%:t"),0,19)
+   call s:printd("file: ".file."\n")
+   let sUsers = ""
+   let sStatus = ""
    while (strlen(sLine) != 0)
-      if g:vss_debug
-         echo "Line len: ".strlen(sLine)
-      endif
+      call s:printd("Line len: ".strlen(sLine))
       let sMatch = matchstr(sLine,".\\{-1,}\n")
-      if g:vss_debug
-         echo "match: ".sMatch."\n"
-      endif
+      call s:printd("match: ".sMatch."\n")
       if match(sMatch,file) == 0
-         if strlen(sUsers) == 0
+         if g:ssShowAllLocks == 1
+            if strlen(sUsers) > 0
+               let sUsers = sUsers.','
+            endif
             let sUsers = sUsers.matchstr(sMatch,' \w\+')
+            " If this checkout is exclusive, append it and break.
+            if g:ssShowExtra
+               if match(sMatch,'\w\+\s\+\w\+\s\+Esc') > -1
+                  let sUsers = sUsers.' (exc)'
+                  break
+               " If this checkout is old, append it.
+               elseif match(sMatch,'\w\+\s\+\w\+\s\+v') > -1
+                  let sUsers = sUsers.' (old)'
+               endif
+            endif
+            call s:printd("users: ".sUsers."\n")
          else
-            let sUsers = sUsers.",".matchstr(sMatch,' \w\+')
-            if g:vss_debug
-               echo "users: ".sUsers."\n"
+            call s:printd("checking match: ".sMatch." w/ ".g:ssUserName)
+            " Get the index of where ssUserName ends.
+            let iMatchedAt = matchend(sMatch,g:ssUserName)
+            call s:printd("iMatchedAt: ".iMatchedAt."\n")
+            " If *I* have it checked out...
+            if iMatchedAt > -1
+               let sStatus = "Locked"
+               " If this checkout is exclusive, append it and break.
+               if g:ssShowExtra
+                  if match(sMatch,'\s\+Exc', iMatchedAt) > -1
+                     let sStatus = sStatus." (exc)"
+                  " If this checkout is old, append it and break.
+                  elseif match(sMatch,'\s\+v', iMatchedAt) > -1
+                     let sStatus = sStatus." (old)"
+                  endif
+               endif
+               break
+            " ElseIf someone else has it exclusively checked out,
+            " Notify and break.
+            elseif match(sMatch,'\w\+\s\+\w\+\s\+Esc') > -1
+               let sStatus = sStatus."Locked by".matchstr(sMatch,' \w\+')
+               break
+            " Else I don't care about any other status.
+            else
+               let sStatus = "Not Locked"
             endif
          endif
       endif
 
       let iLen = strlen(sMatch)
       let sLine = strpart(sLine,iLen,strlen(sLine)-iLen)
-      if g:vss_debug
-         echo "new line: ".sLine."\n"
-      endif
+      call s:printd("new line: ".sLine."\n")
    endwhile
 
    if strlen(sUsers) > 0
       let b:checked_out_status = "Locked by".sUsers
+   elseif strlen(sStatus) > 0
+      let b:checked_out_status = sStatus
    else
       echo "VSS plugin: Unrecoginzed output: ".sFull
    endif
@@ -160,10 +210,17 @@ function! VSSUpdateStatus()
    return b:checked_out_status
 endfunction
 
-" execute the SS command, and echo the results to the vim window.
-function! VSSDo(cmd_args)
-   " exec "!ss ".a:cmd_args." ".SSName(expand("%:p"))." -GL".expand("%:p:h")
-   let sFull = system("ss ".a:cmd_args." ".SSName(expand("%:p"))." -GL".expand("%:p:h"))
+" execute the SS command and echo the results to the vim window.
+function s:Generic(bang,cmd_args)
+   let sCmd = "ss ".a:cmd_args." ".s:GetSSName(expand("%:p"))." -GL".expand("%:p:h")
+   if a:bang == "!" " Raw VSS interaction
+      exec "!".sCmd
+      e
+      SSStatus
+      return
+   endif
+
+   let sFull = system(sCmd)
 
    let sMatch = matchstr(sFull,".* is already checked out, continue.\\{-1,}\n")
    let iLen = strlen(sMatch)
@@ -177,7 +234,7 @@ function! VSSDo(cmd_args)
       let sLine = sFull
    endif
 
-   call VSSUpdateStatus()
+   SSStatus
 
    let v:errmsg = ""
    silent! e
@@ -190,32 +247,83 @@ function! VSSDo(cmd_args)
    echo sLine
 endfunction
 
-command! -nargs=+ SS call VSSDo(<q-args>)
-command! -nargs=+ SSDiff exec "!ss Diff" <q-args> SSName(expand("%:p")) expand("%:p")
+" NOTE: The "Editor for viewing files" field in VSS->Tools->Options->General
+" must be blank in VSS for the built-in diff to work.  Otherwise the file will
+" be opened in the listed editor rather than redirected to a temporary file. 
+" TODO: Is there a way to dynamically set/restore this setting?
+"  - make vert configurable
+function s:Diff(bang,cmd_args)
+   if a:bang == "!" " Raw VSS interaction
+      exec "!ss Diff ".a:cmd_args." ".s:GetSSName(expand("%:p"))." ".expand("%:p")
+      return
+   endif
+
+   let sFile = tempname().".".expand("%:e") " append same extention for syntax highlighting
+   let sFull = system("ss View ".a:cmd_args." -O".sFile." ".s:GetSSName(expand("%:p")))
+
+   if &diffexpr == ""
+      let diff = "diff"
+   else
+      let diff = &diffexpr
+   endif
+
+   let sFull = system(diff." -q ".sFile." ".expand("%"))
+   if (strlen(sFull) > 0)
+      " the files differ
+      if g:ssDiffVertical
+         exec "vert diffsplit ".sFile
+      else
+         exec "diffsplit ".sFile
+      endif
+   else
+      echo "No differences"
+   endif
+endfunction
+
+function s:printd(message)
+   if g:vss_debug
+      echo a:message
+   endif
+endfunction
+
+command! -bang -nargs=+ SS call s:Generic(<q-bang>,<q-args>)
+command! -bang -nargs=* SSDiff call s:Diff(<q-bang>,<q-args>)
+command! -bang -nargs=* SSStatus call s:UpdateStatus(<q-bang>,<q-args>)
 
 
 " --- COMMANDS ---
 "
-" See: VSS help for all available commands and command switches
+" Some of the more common commands have been mapped below.  Any VSS command
+" (in theory, anyway) can be called from the command line.
+" This script really likes to do things quietly, but if you want more
+" interaction from VSS, then use the "!" (bang) modifier.
+" -I-Y means answer yes to all questions.
+" See: VSS help for all available commands and command switches.
 
 
 " Check out (and lock) current file from VSS
+nmap ,cO :SS! Checkout<cr>
 nmap ,co :SS Checkout -I-Y<cr>
 
 " Check in current file
-nmap ,ci :SS Checkin<cr>
+nmap ,cI :SS! Checkin<cr>
+nmap ,ci :SS Checkin -I-Y<cr>
 
-" Guess.  Be careful, you will lose any changes you've made!
+" Guess.
+nmap ,cU :SS! Undocheckout<cr>
 nmap ,cu :SS Undocheckout -I-Y<cr>
 
 " Get the latest version of this file.  Does not lock file
+nmap ,cG :SS! Get<cr>
 nmap ,cg :SS Get<cr>
 
 " Updates the locked status of this file.
-nmap ,cs :call VSSUpdateStatus()<cr><C-L>
+nmap ,cS :SSStatus!<cr>
+nmap ,cs :SSStatus<cr>
 
 " compares differences, unix-like
-nmap ,cd :SSDiff -DU<cr>
+nmap ,cD :SSDiff! -DU<cr>
+nmap ,cd :SSDiff<cr>
 
 " echo current DB.  Useful when working with several databases.  You can dynamically
 " change which database to interface with by changing the $SSDIR env variable, like so:
