@@ -1,15 +1,11 @@
-" Author: David S. Eggum <email: TBD>
+" Author: David S. Eggum <deggum@synopsys.com>
 " Last Update: Sept 13 2001
-" Version: 1.4a
+" Version: 1.4c
 " 
 " sourceSafe.vim - Interfaces with the MS VSS command line.  This script is
 " not meant to be a full replacement of the VSS GUI, but instead it provides a
 " shortcut to the most frequently used operations such as checkin, checkout,
 " get current file, check differences, and so on.
-"
-" Special Note:
-" I am unable to give further support until I am able to get back online.
-" If you find bugs, please try to fix and post them on your own.
 "
 " Setup:
 "   There has been some talk in the VIM community about simplifying script
@@ -28,6 +24,13 @@
 "
 " Updates:
 " The latest version is available at vim.sourceforge.net
+" 1.4c
+"   Updates:
+"     - Updatd contact info.
+" 1.4b
+"   Bug Fixes:
+"     - The current lock status was queried twice.  Quite noticable over a slow
+"       network.
 " 1.4a
 "   Minor Features:
 "     - Speedup: SS Status now looks for a local vssver.scc file before
@@ -363,6 +366,7 @@ function s:Generic(bang,cmd_args,filename,bExternal)
       exec "!".sCmd
       if a:bExternal == 0
          e
+         echom "UpdateStatus 2," a:cmd_args
          call s:UpdateStatus("","Status",a:filename)
       endif
       return
@@ -392,7 +396,9 @@ function s:Generic(bang,cmd_args,filename,bExternal)
       exec "normal" bufwinnr(a:filename) "\<C-w>w"
    endif
    if (a:bExternal == 0) || bufloaded(a:filename)
-      call s:UpdateStatus("","Status",a:filename)
+      " this appears to be unnecessary, UpdateStatus is called
+      " when the file is reopened
+      " call s:UpdateStatus("","Status",a:filename)
 
       let v:errmsg = ""
 

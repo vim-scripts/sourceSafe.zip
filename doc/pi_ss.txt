@@ -226,4 +226,4 @@ others for uniformity. >
 <
 
 
- vim:tw=78:fo=tcq2:ts=8:sw=8:noexpandtab:noet
+ vim:tw=78:fo=tcq2:ts=8:sw=8:noexpandtab:noet:ft=help
