@@ -1,207 +1,221 @@
 " Author: David Eggum <davide@simutech.com>
-" Last Update: Aug 03 2001
-" Version: 1.3
+" Last Update: Sept 10 2001
+" Version: 1.4
 " 
-" sourceSafe.vim - Interfaces with the MS VSS command line.  This script
-" provides a shortcut to the most frequently used operations such as checkin,
-" checkout, get current file, check differences, and so on; it is *not* meant
-" to be a full replacement of the VSS GUI.
+" sourceSafe.vim - Interfaces with the MS VSS command line.  This script is
+" not meant to be a full replacement of the VSS GUI, but instead it provides a
+" shortcut to the most frequently used operations such as checkin, checkout,
+" get current file, check differences, and so on.
 "
 " Setup:
-" The first three settings under the "CONFIGURATION" section below must first be
-" customized for your environment.  The rest of the settings are based on user
-" preference.
+"   There has been some talk in the VIM community about simplifying script
+"   installation processes.  But until that happens, you will need to do the
+"   following...
+" - Place this file under $VIM/vimfiles/plugin
+" - Copy the help file included (pi_ss.txt) into your local doc directory,
+"   probably under $VIM/vimfiles/doc
+" - type :helptags $VIM/vimfiles/doc from any vim window
+" - type :help sourcesafe-setup, and follow the customization instructions.
+" - Also see :help sourcesafe for an overview of this plugin.
 "
-" Usage:
-" Interaction with VSS is done from the VIM command line.  Each command works
-" in the context of the current buffer.  Most of the commands look like this:
+" Send any feature suggestions or improvements you would like to have included!
+" If you would like to help beta test new versions or be notified when a new
+" version is released, then send an email to the address above.
 "
-" :SS <action>
-"
-" Where <action> is substituted with something like "Checkout" or "Checkin
-" -I-Y".  Whatever is entered for <action> is passed directly to VSS.
-" See the "COMMANDS" section below for a mapping of the most common (and
-" useful) operations.
-"
-" To diff the working file with the one checked into VSS, use the ":SSDiff"
-" command.  The differences are displayed using the built-in VIM diff utility.
-" Change the ssDiffVertical setting to display the difference vertically or
-" horizontally.
-"
-" The current lock status is available from the SSGetStatus() function and is
-" updated whenever a file is opened and after any "SS" command.  This function
-" is useful for placing the file status somewhere in the vim window.  The
-" status can be updated manually with the ":SSStatus" command.  Examples of
-" placing it in the ruler are provided in the "CONFIGURATION" section below.
-"
-" A summary of all the files checked out by the current user will be listed
-" with the ":SSShowAll" command.  Simple VSS operations can be performed on
-" the listed files, both in normal and visual mode.
-" 
-" This script really likes to do things quietly, but if you want direct
-" interaction from VSS, then use the bang (!) modifier with any command. For
-" example:
-"
-" :SS! Undocheckout
-"
-" This will allow you to see the actual command sent to VSS, and give you a
-" chance to answer any questions that VSS may have, such as "This file has
-" changed, Undo check out and lose changes?(Y/N)".
-"
-" Updates:  The latest version is available at vim.sourceforge.net
-" 1.3 - Added SSShowAll function that lists all checked out files.  
-"     - Added some important VSS configuration information.  See SSDiff.
+" Updates:
+" The latest version is available at vim.sourceforge.net
+" 1.4
+"   Major Features:
+"     - Added online help.
+"     - Added SS commands to the menubar. see :help sourcesafe-menus
+"     - Improved script configuration setup.
+"   Minor Features:
+"     - Added SSRestore to revert settings before :diff changed them.
+"     - Added quiet diff mode from the showAll window.
+"     - Added ">" mappings for diff mode.  See :help sourcesafe-diff
+"     - Changed SSDiff, SSStatus, SSShowAll to SS Diff, SS Status, and SS
+"       ShowAll for uniformity.
+"     - The showAll window is synchronized with the open buffers.
+"   Bug Fixes:
+"     - Removed Diff temp file from buffer list.
+"     - Prevented diffing a file that isn't in VSS.
+"     - Filtered non-informative messages in s:Generic.
+"     - SS Status did not recognize deleted status.
+"     - Temp files were not deleted.
+"     - showAll now removes messages about directories that you do not have access
+"       to.  (Colman Curtin)
+"     - windows w/o file names (like cwindow) are now ignored for SS Status
+"     - If VSS truncates the file in showAll and more than one file matches,
+"       getFile() now returns the locked one.
+" 1.3
+"   Major Features:
+"     - Added SSShowAll which lists all checked out files.  
+"   Minor Features:
+"     - Added some important VSS configuration information.  See :help
+"       sourcesafe-special-note.
 "     - Added mapleader.
-" 1.2 - Diffing the file with the latest version in VSS now takes advantage of
+" 1.2
+"   Major Features:
+"     - Diffing the file with the latest version in VSS now takes advantage of
 "       Vim's built-in diff feature.
+"   Minor Features:
 "     - Added new lock status mode. (Daniel Einspanjer)
 "     - Added extra lock information (old) and (exc). (Daniel Einspanjer)
 "     - Added "!" (bang) switch to all commands for direct interaction with VSS.
-" 1.1a- Fixed hang with Undocheckout when the current file has changed.
-" 1.1 - The current lock status is now available from the SSGetStatus()
+" 1.1a
+"   Bug Fixes:
+"     - Fixed hang with Undocheckout when the current file has changed.
+" 1.1
+"   Major Features:
+"     - The current lock status is now available from the SSGetLockStatus()
 "       function.  It looks really good in the ruler!  Samples are provided
 "       below.  Also see :help rulerformat.
+"   Minor Features:
 "     - Command responses are now echo'ed to the screen.
 "     - Added silent flag (Daniel Einspanjer)
 " 1.0 - Initial release
-
+" 
 " Todo:
-" - ...
-"
-" Send any suggestions or improvements you would like to have included!
+" - Allow tagging of lines in showall window
+" - Allow diffing against a history listing.
+" - Add menu tearoff shortcut?
+" - Add checked out version in status?
+" - Consider adding a command to add a file to VSS.
 
-" --- CONFIGURATION ---
+if exists("loaded_sourcesafe")
+   finish
+endif
+let loaded_sourcesafe=1
 
-" Change this environment variable to the path of your VSS database.  The path to your
-" database can be found in VSS under File->Open SourceSafe Database.
-let $SSDIR="//gamma/swdev/src/jrave"
+if !exists("$SSDIR")
+   echom "sourceSafe.vim: $SSDIR is not set. See :help SSDIR"
+   finish
+endif
 
+if !exists("ssLocalTree")
+   echom "sourceSafe.vim: ssLocalTree is not set. See :help ssLocalTree"
+   finish
+endif
 
-" Files are referenced in VSS like this:
-"
-" $/the/path/to/your/file
-"
-" So in order to match the path of the local file to the format above, the top-level
-" directory must be changed to "$".
-" For example, if the current file is
-"
-"   C:/dev/project/main.c
-"
-" then to check the status of the currently opened file the following VSS
-" command would need to be sent
-"
-"   ss Status $/project/main.c
-"
-" The following substitue pattern will change to "$" for these commands, so
-" change this setting to the top level of your local tree.
-" let vssTree="C:\\\\dev"
-"  or simply:
-" let vssTree="C:.dev"
-" 
-" This also works well:
-let vssTree=".*dev[0-9.]*"
-" 
-" NOTE: These do not work:
-" let vssTree="C:\dev"
-" let vssTree="C:\\dev"
-" let vssTree="C:/dev"
+if !exists("ssUserName")
+   echom "sourceSafe.vim: ssUserName is not set. See :help ssUserName"
+   finish
+endif
 
-" Change this to your username.  Note that VSS is case sensitive!
-let ssUserName="Davide"
+" Set defaults
+if !exists("ssShowAllLocks")
+   let ssShowAllLocks=1
+endif
 
-" The following flag will change the behavior of SSGetStatus() to show
-" all users who have the file checked out, or only your status.
-let ssShowAllLocks=1
+if !exists("ssShowExtra")
+   let ssShowExtra=0
+endif
 
-" set to 1 to display outdated (old) or exclusive (exc) lock status.
-let ssShowExtra=0
+if !exists("ssDiffVertical")
+   let ssDiffVertical=1
+endif
 
-" When using the built-in diff feature, set this to 1 to split the windows
-" vertically, set to 0 to split horizontally.
-let ssDiffVertical=1
+if !exists("ssQuietMode")
+   let ssQuietMode=1
+endif
 
-" In the SSShowAll window, this is the default interaction setting.
-let ssQuietMode=1
+if !exists("ssSetRuler")
+   let ssSetRuler=1
+endif
 
-" The current lock status is available from the SSGetStatus() command.  A
-" really useful place to put this info is in the ruler, like so: 
-"
-" set rulerformat=%{SSGetStatus()}
-"
-" The following works well; change it to your liking.
-set rulerformat=%60(%=%{SSGetStatus()}%)\ %4l,%-3c\ %3p%%
+if (strlen(&rulerformat) == 0) && (ssSetRuler == 1)
+   set rulerformat=%60(%=%{SSGetLockStatus()}%)\ %4l,%-3c\ %3p%%
+endif 
 
+if !exists("ssMenuPath")
+   let ssMenuPath = "Plugin."
+endif
 
-" --- COMMANDS ---
-"
-" Note: "-I-Y" means automatically answer yes to all questions.  If you do not
-" like the default command mappings, i.e. ",co" for "Check Out", then change
-" the mapleader setting to your liking. See :help mapleader.
-" See: VSS help for all available commands and command switches.
+if !exists("ssMapLeader")
+   let mapleader = ",c"
+else
+   let mapleader = ssMapLeader
+endif
 
-let mapleader = ",c"
-
-" Check out (and lock) current file from VSS
-nmap <Leader>O :SS! Checkout<cr>
-nmap <Leader>o :SS Checkout -I-Y<cr>
-
-" Check in current file
-nmap <Leader>I :SS! Checkin<cr>
-nmap <Leader>i :SS Checkin -I-Y<cr>
-
-" Guess.
-nmap <Leader>U :SS! Undocheckout<cr>
-nmap <Leader>u :SS Undocheckout -I-Y<cr>
-
-" Get the latest version of this file.  Does not lock the file.
-nmap <Leader>G :SS! Get<cr>
-nmap <Leader>g :SS Get<cr>
-
-" Updates the locked status of this file.
-nmap <Leader>S :SSStatus!<cr>
-nmap <Leader>s :SSStatus<cr>
-
-" NOTE: The "Editor for viewing files" field in VSS->Tools->Options->General
-" must be blank in VSS for the VIM diff utility to work.  Otherwise the file
-" will be opened in the listed editor rather than redirected to a temporary
-" file.  Also, so that comments can be added when checking in code, be sure
-" that an editor is listed in VSS->Tools->Options->Command Line Options, and
-" the "Use editor to prompt for comments" option is selected,
-
-" compares differences, unix-like
-nmap <Leader>D :SSDiff! -DU<cr>
-nmap <Leader>d :SSDiff<cr>
-
-nmap <Leader>A :SSShowAll!<cr>
-nmap <Leader>a :SSShowAll<cr>
-
-" echo current DB.  Useful when working with several databases.  You can dynamically
-" change which database to interface with by changing the $SSDIR env variable, like so:
-" nmap ,do :let $SSDIR = "//<path>/<to>/<alternate>/<database>"
-nmap ,db :echo "using VSS DB ".$SSDIR<cr>
+if !hasmapto("SS! Checkout")
+   nnoremap <Leader>O :SS! Checkout<cr>
+endif
+if !hasmapto("SS Checkout")
+   nnoremap <Leader>o :SS Checkout -I-Y<cr>
+endif
+if !hasmapto("SS! Checkin")
+   nnoremap <Leader>I :SS! Checkin<cr>
+endif
+if !hasmapto("SS Checkin")
+   nnoremap <Leader>i :SS Checkin -I-Y<cr>
+endif
+if !hasmapto("SS! Undocheckout")
+   nnoremap <Leader>U :SS! Undocheckout<cr>
+endif
+if !hasmapto("SS Undocheckout")
+   nnoremap <Leader>u :SS Undocheckout -I-Y<cr>
+endif
+if !hasmapto("SS! Get")
+   nnoremap <Leader>G :SS! Get<cr>
+endif
+if !hasmapto("SS Get")
+   nnoremap <Leader>g :SS Get<cr>
+endif
+if !hasmapto("SS! Status")
+   nnoremap <Leader>S :SS! Status<cr>
+endif
+if !hasmapto("SS Status")
+   nnoremap <Leader>s :SS Status<cr>
+endif
+if !hasmapto("SS! Diff")
+   nnoremap <Leader>D :SS! Diff -DU<cr>
+endif
+if !hasmapto("SS Diff")
+   nnoremap <Leader>d :SS Diff<cr>
+endif
+if !hasmapto("SS! ShowAll")
+   nnoremap <Leader>A :SS! ShowAll<cr>
+endif
+if !hasmapto("SS ShowAll")
+   nnoremap <Leader>a :SS ShowAll<cr>
+endif
 
 
-" Extra utilities useful for working with VSS
-"
-" sets current file to writeable
-nmap ,w :silent !attrib -r %<cr>:e<cr>
+au! BufRead * SS Status
 
-" sets current file to readonly
-nmap ,r :silent !attrib +r %<cr>:e<cr>
+let s:showAllWindow = 0
 
-
-" --- END OF COMMANDS ---
-
-au! BufRead * SSStatus
+function <SID>displayMenus(bang)
+   exec 'silent! aunmenu' g:ssMenuPath.'VSS'
+   if a:bang == "!"
+      let mode = "Quiet"
+      let b = ""
+      let diff = " -DU"
+   else
+      let mode = "Interactive"
+      let b = "!"
+      let diff = ""
+   endif
+   exec 'anoremenu' g:ssMenuPath.'VSS.Check\ &Out<Tab>:SS'.a:bang.'\ CheckOut :SS'.a:bang 'CheckOut<cr>'
+   exec 'anoremenu' g:ssMenuPath.'VSS.Check\ &In<Tab>:SS'.a:bang.'\ CheckIn :SS'.a:bang 'CheckIn<cr>'
+   exec 'anoremenu' g:ssMenuPath.'VSS.&Undo\ Check\ Out<Tab>:SS'.a:bang.'\ Undocheckout :SS'.a:bang 'Undocheckout<cr>'
+   exec 'anoremenu' g:ssMenuPath.'VSS.&Get<Tab>:SS'.a:bang.'\ Get :SS'.a:bang 'Get<cr>'
+   exec 'anoremenu' g:ssMenuPath.'VSS.&Diff<Tab>:SS'.a:bang.'\ Diff :SS'.a:bang 'Diff'.diff.'<cr>'
+   exec 'anoremenu' g:ssMenuPath.'VSS.&Summary<Tab>:SS'.a:bang.'\ ShowAll :SS'.a:bang 'ShowAll<cr>'
+   exec 'anoremenu' g:ssMenuPath.'VSS.&Update\ Status<Tab>:SS'.a:bang.'\ Status :SS'.a:bang 'Status<cr>'
+   exec 'anoremenu' g:ssMenuPath.'VSS.-Sep-   :'
+   exec 'anoremenu <silent> <script> '.g:ssMenuPath.'&VSS.Set\ Menu\ '.mode.'\ &Mode :call <SID>displayMenus("'.b.'")<cr>'
+   exec 'anoremenu' g:ssMenuPath.'VSS.&Help<Tab>:help\ sourceSafe :help sourceSafe<cr>'
+endfunction
 
 let b:checked_out_status = ""
 
 function s:GetSSName(filename)
-   let ssfile = substitute(a:filename,g:vssTree,"\$","")
+   let ssfile = substitute(a:filename,g:ssLocalTree,"\$","")
    return substitute(ssfile,"\\","/","g")
 endfunction
 
-function SSGetStatus()
+function SSGetLockStatus()
    if exists("b:checked_out_status")
       return b:checked_out_status
    else
@@ -209,11 +223,9 @@ function SSGetStatus()
    endif
 endfunction
 
-let g:vss_debug = 0
-
 " get the current lock status from VSS and place it in b:checked_out_status
-function s:UpdateStatus(bang,cmd_args)
-   let sCmd = "ss Status ".a:cmd_args." ".s:GetSSName(expand("%:p"))
+function s:UpdateStatus(bang,cmd_args,filename)
+   let sCmd = "ss ".a:cmd_args." ".s:GetSSName(a:filename)
    if a:bang == "!" " Raw VSS interaction
       exec "!".sCmd
       return
@@ -224,7 +236,9 @@ function s:UpdateStatus(bang,cmd_args)
    if (match(sFull,"No checked out files found.") == 0)
       let b:checked_out_status = "Not Locked"
       return b:checked_out_status
-   elseif (match(sFull,"is not valid SourceSafe syntax") != -1 || match(sFull,"is not an existing filename or project") != -1)
+   elseif (match(sFull,"is not valid SourceSafe syntax") != -1 || 
+            \match(sFull,"is not an existing filename or project") != -1 ||
+            \match(sFull,"has been deleted") != -1)
       " may occur when a file is checked that is not in the top
       " level of the development tree
       let b:checked_out_status = "Not in VSS"
@@ -293,7 +307,7 @@ function s:UpdateStatus(bang,cmd_args)
    elseif strlen(sStatus) > 0
       let b:checked_out_status = sStatus
    else
-      echo "VSS plugin: Unrecoginzed output: ".sFull
+      echom "VSS plugin: Unrecoginzed output:" sFull
    endif
 
    return b:checked_out_status
@@ -301,13 +315,32 @@ endfunction
 
 " execute the SS command and echo the results to the vim window.
 function s:Generic(bang,cmd_args,filename,bExternal)
+   " look for special cases...
+   if match(a:cmd_args,"Status") != -1
+      " Bug fix: cwindow does not have a file name
+      if (a:filename != "")
+         call s:UpdateStatus(a:bang,a:cmd_args,a:filename)
+      endif
+      return
+   elseif match(a:cmd_args,"Diff") != -1
+      call s:Diff(a:bang,strpart(a:cmd_args,5),a:filename,0) " not summary
+      return
+   elseif match(a:cmd_args,"ShowAll") != -1
+      call s:showAll(a:bang)
+      return
+   endif
    let sCmd = "ss ".a:cmd_args." ".s:GetSSName(a:filename)." -GL".fnamemodify(a:filename,":h")
    if a:bang == "!" " Raw VSS interaction
       exec "!".sCmd
       if a:bExternal == 0
          e
-         SSStatus
+         call s:UpdateStatus("","Status",a:filename)
       endif
+      return
+   endif
+
+   if &modified
+      echom "This file has been modified. Please save it."
       return
    endif
 
@@ -325,58 +358,125 @@ function s:Generic(bang,cmd_args,filename,bExternal)
       let sLine = sFull
    endif
 
-   if a:bExternal == 0
-      SSStatus
+   if a:bExternal && bufloaded(a:filename)
+      " Jump to the window.  Thanks to Benji Fisher for how to do this.
+      exec "normal" bufwinnr(a:filename) "\<C-w>w"
+   endif
+   if (a:bExternal == 0) || bufloaded(a:filename)
+      call s:UpdateStatus("","Status",a:filename)
 
       let v:errmsg = ""
+
+      normal M
+
       silent! e
+
+      exec "normal \<c-o>"
+      exec "normal \<c-o>"
+
       if v:errmsg != ""
-         echo "reopen failed: ".v:errmsg
+         echom "reopen failed:" v:errmsg
          return
       endif
    endif
+   if a:bExternal && bufloaded(a:filename)
+      wincmd p
+   endif
 
-   " echo command response, useful if there's an error
-   echo sLine
+   " update the showAll winow
+   if !a:bExternal && s:showAllWindow == 1
+      call s:synchronize()
+   endif
+
+   " Echo command response, useful if there's an error.
+   " Do not echo non-informative msgs, esp. if operating on more than one file.
+   if (match(sLine,'^\f\+$') != -1)
+      echom sLine
+   endif
+endfunction
+
+function SSRestore()
+   if !s:bufferclosed
+      return
+   endif
+   set nodiff
+   let &fdc = s:fdc
+" Haven't found a good way to restore the previous folds
+"    let &fdm = s:fdm
+" 
+   let &scb = s:scb
+   let &sbo = s:sbo
+   let &wrap = s:wrap
+   au! sourceSafe
 endfunction
 
 function s:Diff(bang,cmd_args,filename,bSummary)
    if a:bang == "!" " Raw VSS interaction
-      exec "!ss Diff ".a:cmd_args." ".s:GetSSName(a:filename)." ".a:filename
+      exec "!ss Diff" a:cmd_args s:GetSSName(a:filename) a:filename
       return
    endif
 
-   let sFile = tempname().".".fnamemodify(a:filename,":e") " append same extention for syntax highlighting
-   let sFull = system("ss View ".a:cmd_args." -O".sFile." ".s:GetSSName(a:filename))
-
-   if &diffexpr == ""
-      let diff = "diff"
-   else
-      let diff = &diffexpr
+   if !a:bSummary && match(SSGetLockStatus(),"Not in VSS") != -1
+      echom "Cannot diff, file not in VSS"
+      return
    endif
 
-   let sFull = system(diff." -q ".sFile." ".a:filename)
+   " save current settings before diff screws them up
+   let s:fdc = &fdc " foldcolumn
+   let s:fdm = &fdm " foldmethod
+   let s:scb = &scb " scrollbind
+   let s:sbo = &sbo " scrollopt
+   let s:wrap = &wrap
+
+   let sFile = tempname().".".fnamemodify(a:filename,":e") " append same extention for syntax highlighting
+   call system("ss View ".a:cmd_args." -O".sFile." ".s:GetSSName(a:filename))
+
+   let sFull = system("diff -q ".sFile." ".a:filename)
    if (strlen(sFull) > 0)
       " the files differ
       if a:bSummary
          return 1
       endif
 
+      let s:bufferclosed = 0
+
+      augroup sourceSafe
+         exec "au BufEnter" expand("%:t") "call SSRestore()"
+      augroup end
+
+" 
+"       " Not sure if this is useful
+"       if !hasmapto('diffput') && maparg("<","v") == ""
+"          vmap <buffer> < :diffput<cr>
+"       endif
+" 
+
       if g:ssDiffVertical
-         exec "vert diffsplit ".sFile
+         exec "vert diffsplit" sFile
       else
-         exec "diffsplit ".sFile
+         exec "diffsplit" sFile
+      endif
+      set nobuflisted
+
+      augroup sourceSafe
+         exec "au BufUnload" expand("%:t") "let s:bufferclosed = 1"
+         exec "au BufUnload" expand("%:t") "call delete('".sFile."')"
+      augroup end
+
+      if !hasmapto('diffput') && maparg(">","nv") == ""
+         nmap <buffer> > :diffput<cr>
+         vmap <buffer> > :diffput<cr>
       endif
    else
       if a:bSummary
          return 0
       endif
 
-      echo "No differences"
+      echom "No differences"
    endif
 endfunction
 
-" show all files locked by you
+" show all files locked by the current user
 function s:showAll(bang)
    let sCmd = "ss Status $/ -R -U"
    if a:bang == "!"
@@ -384,24 +484,32 @@ function s:showAll(bang)
       return
    endif
 
-   echo "Please wait..."
+   echom "Searching for locked files, please wait..."
 
    " sent to a temporary file to prevent VSS from splitting long lines
    let sFile = tempname()
+   let s:showAllWindow = sFile
    let sFull = system(sCmd." -O".sFile)
-   exec "sp ".sFile
+   exec "sp" sFile
    set nobuflisted
+   set noswapfile
+   set bufhidden=delete
+   let s:showAllWindow = 1
+   exec "au BufUnload" expand("%:t") "call delete('".sFile."')"
+   exec "au BufUnload" expand("%:t") "let s:showAllWindow = 0"
    silent g/:$/d
    silent g/^$/d
-   silent exec '%s/'.g:ssUserName.'\s\+//e'
+   silent g/You do not have access/d
+   silent exec '%s/\zs'.g:ssUserName.'\s\+\zev//e'
+   silent exec '%s/'.g:ssUserName.'\s\+/      /e'
 
    1
    normal mv
 
-   let @v = "\" Use a visual block (V) to operate on multiple files.\n"
-          \."\" (e)dit, check(i)n, (u)ndocheckout, (d)iff, (q)uit\n"
+   let @v = "\" Note: Use a (V)isual line to operate on multiple files.\n"
+          \."\" (e)dit, (E)dit and close, (s)plit edit, (v)ert split edit\n"
+          \."\" check(i)n, (u)ndocheckout, (d)iff, (D)iff summary, (q)uit\n"
           \."\" (!) change interaction mode. Current mode is quiet.\n"
-          \."\" (D)iff summary.\n"
           \."\" Files checked out by ".g:ssUserName.":\n"
    put! v
    if g:ssQuietMode == 0
@@ -412,7 +520,7 @@ function s:showAll(bang)
    setlocal nomodifiable
 
    if winheight(".") > line("$")
-      exec "resize ".line("$")
+      exec "resize" line("$")
    endif
 
    1
@@ -421,26 +529,30 @@ function s:showAll(bang)
    syn keyword String contained quiet interactive
    syn match Comment "^\".*$" contains=Special,String,Directory
    syn match Directory "^\f\+" contains=Special
-   syn match String "^\" Files.*$"
+   syn match String "^\" \zsFiles.*$"
    syn match Special "(\zs.\ze)" contained
+   syn match Special "^\" \zsNote:\ze" contained
    syn match Title "No files found.*$"
    syn match Special "No changes" contained
    syn match Directory "\zschanges\ze." contained
 
-   nmap <buffer> <silent> !      :call SSChangeMode()<cr>
-   nmap <buffer> <silent> D      :call SSDiffSummary()<cr>
-   nmap <buffer> <silent> e      :call SSEditFile()<cr>
-   nmap <buffer> <silent> i      :call SSGeneric("Checkin",0)<cr>
-   vmap <buffer> <silent> i      :call SSGeneric("Checkin",1)<cr>
-   nmap <buffer> <silent> u      :call SSGeneric("Undocheckout",0)<cr>
-   vmap <buffer> <silent> u      :call SSGeneric("Undocheckout",1)<cr>
-   nmap <buffer> <silent> d      :call SSDiffl()<cr>
-   vmap <buffer> <silent> d      :call SSDiffl()<cr>
-   nmap <buffer> <esc>  :q!<cr>
-   nmap <buffer> q      :q!<cr>
+   nnoremap <script> <buffer> <silent> !      :call <SID>ChangeMode()<cr>
+   nnoremap <script> <buffer> <silent> D      :call <SID>DiffSummary()<cr>
+   nnoremap <script> <buffer> <silent> e      :call <SID>EditFile(0)<cr>
+   nnoremap <script> <buffer> <silent> E      :call <SID>EditFile(1)<cr>
+   nnoremap <script> <buffer> <silent> v      :call <SID>EditFile(2)<cr>
+   nnoremap <script> <buffer> <silent> s      :call <SID>EditFile(3)<cr>
+   nnoremap <script> <buffer> <silent> i      :call <SID>Generical("Checkin",0)<cr>
+   vnoremap <script> <buffer> <silent> i      :call <SID>Generical("Checkin",1)<cr>
+   nnoremap <script> <buffer> <silent> u      :call <SID>Generical("Undocheckout",0)<cr>
+   vnoremap <script> <buffer> <silent> u      :call <SID>Generical("Undocheckout",1)<cr>
+   nnoremap <script> <buffer> <silent> d      :call <SID>Diffical()<cr>
+   vnoremap <script> <buffer> <silent> d      :call <SID>Diffical()<cr>
+   nnoremap          <buffer>          <esc>  :q!<cr>
+   nnoremap          <buffer>          q      :q!<cr>
 endfunction
 
-function SSDiffSummary()
+function <SID>DiffSummary()
    let iLastLine = line("$")
    let i = 1
    while i <= iLastLine
@@ -458,14 +570,14 @@ function SSDiffSummary()
 
    normal mv
    setlocal modifiable
-   silent! %s/\zsiff summary\ze\./&; No changes, changes/
+   silent! %s/\zsiff summary\ze\,/&; No changes, changes/
    noh
    setlocal nomodifiable
    set nomodified
    normal 'v
 endfunction
 
-function SSChangeMode()
+function <SID>ChangeMode()
    setlocal modifiable
    normal mv
    if g:ssQuietMode == 1
@@ -490,22 +602,76 @@ function s:getFile(spot)
    let sFile = matchstr(sLine,"\\f\\+")
    let sFull = matchstr(sLine,"\\f\\+$")."\\".sFile
    if (strlen(sFile) == 19) " VSS probably truncated the filename
-      return glob(sFull."*") " try to restore it
-   endif
+      let sAll = glob(sFull."*") " try to restore it
+      let iPos = stridx(sAll, "\n")
+      if (iPos == -1)
+         return sAll
+      endif
 
-   return sFull
+      " if more than one file matches, then look for the locked one
+      let sPart = matchstr(sAll,"^\\zs.\\{-1,}\\ze[\n]")
+      let iPos = 0
+      while (sPart != "")
+         let sFull = system("ss Status ".s:GetSSName(sPart)." -U".g:ssUserName)
+         if (match(sFull,"No files found checked out by ".g:ssUserName) == 0)
+            let iPos = iPos + strlen(sPart) + 1
+            let sPart = matchstr(sAll,"^\\zs.\\{-1,}\\ze[\n]",iPos)
+            " Haven't figured out how to match [\n$], so....
+            if (strlen(sPart) == 0) " found the end of the list, return this file.
+               return strpart(sAll,iPos)
+            endif
+            continue
+         else
+            " found the file, return it
+            return sPart
+         endif
+      endwhile
+   endif
 endfunction
 
-function SSEditFile()
+function <SID>EditFile(iMode)
    let sFile = s:getFile(".")
    if strlen(sFile) == 0
       return
    endif
-   q!
-   exec "e ".sFile
+   if a:iMode == 0 " edit
+      wincmd p
+      exec "e" sFile
+   else
+      q!
+      if a:iMode == 1 " edit and close
+         exec "e" sFile
+      elseif a:iMode == 2 " vertical edit
+         exec "vert sp" sFile
+      elseif a:iMode == 3 " split edit
+         exec "sp" sFile
+      endif
+   endif
 endfunction
 
-function SSGeneric(cmd,bVisual)
+" update the showAll window.  Assumes the user hasn't moved the preview window
+" from the top.
+function s:synchronize()
+   let sCurrent = escape(expand("%:p"), '\')
+   wincmd t
+   let iLast = line("$")
+   let iCurrent = 1
+   while (iCurrent <= iLast)
+      let sFile = s:getFile(iCurrent)
+      if strlen(sFile) == 0 " don' do nuttin
+      elseif match(sFile,sCurrent) != -1
+         setlocal modifiable
+         d
+         set nomodified
+         setlocal nomodifiable
+         return
+      endif
+      let iCurrent = iCurrent + 1
+   endwhile
+   wincmd p
+endfunction
+
+function <SID>Generical(cmd,bVisual)
    let sFile = s:getFile(".")
    if strlen(sFile) == 0
       return
@@ -516,14 +682,14 @@ function SSGeneric(cmd,bVisual)
       call s:Generic("!",a:cmd,sFile,1)
    endif
 
-   " Note: can't use mode(), it always returns "n"
+   " Note: can't use mode(), it always returns "n" :(
    if a:bVisual == 0
       setlocal modifiable
       d
       set nomodified
       setlocal nomodifiable
    elseif line("'>") == line(".")
-      " we are operating on the last line in the visual block so delete the
+      " we are operating on the last line in the visual block, so delete the
       " entire block
       setlocal modifiable
       silent '<,'>d
@@ -532,18 +698,26 @@ function SSGeneric(cmd,bVisual)
    endif
 endfunction
 
-function SSDiffl()
+function <SID>Diffical()
    let sFile = s:getFile(".")
    if strlen(sFile) == 0
       return
    endif
-   call s:Diff("!","-DU",sFile,0)
+   if g:ssQuietMode == 1
+      wincmd j
+      exec "e" sFile
+      call s:Diff("","",sFile,0)
+   else
+      call s:Diff("!","-DU",sFile,0)
+   endif
 endfunction
 
 command! -bang -nargs=+ SS call s:Generic(<q-bang>,<q-args>,expand("%:p"),0)
-command! -bang -nargs=* SSDiff call s:Diff(<q-bang>,<q-args>,expand("%:p"),0)
-command! -bang -nargs=* SSStatus call s:UpdateStatus(<q-bang>,<q-args>)
-command! -bang -nargs=* SSShowAll call s:showAll(<q-bang>)
 
+if g:ssQuietMode == 0
+   call <SID>displayMenus("!")
+else
+   call <SID>displayMenus("")
+endif
 
-" vim: sw=3
+" vim: sw=3:expandtab

@@ -1,0 +1,229 @@
+*pi_ss.txt*     Interact with Microsoft's Visual Source Safe
+
+                    SOURCESAFE.VIM REFERENCE MANUAL    by David Eggum
+		    For Vim version 6.0.  Last change: 2001 Sept 07
+
+							*sourcesafe*
+sourceSafe.vim - Interfaces with the MS VSS command line.  This script
+provides a shortcut to the most frequently used operations such as checkin,
+checkout, get current file, check differences, and so on.
+
+CONTENTS
+1. Overview						|sourcesafe-overview|
+2. Setup						|sourcesafe-setup|
+3. Customization					|sourcesafe-customize|
+4. Commands						|sourcesafe-commands|
+
+
+==============================================================================
+1. Overview						*sourcesafe-overview*
+
+Interaction with VSS is done from the VIM command line.  Each command works in
+the context of the current buffer.  All of the commands look like this: >
+
+  :SS <action>
+
+Where <action> is substituted with something like "Checkout" or "Checkin
+-I-Y".  Whatever is entered for <action> is passed directly to VSS, with a few
+exceptions.  See the |sourcesafe-commands| section below for a mapping of the
+most common (and useful) operations.
+
+							*sourcesafe-bang*
+This script really likes to do things quietly, but if you want direct
+interaction from VSS, then use the bang (!) modifier with any command. For
+example: >
+
+  :SS! Undocheckout
+
+This will allow you to see the actual command sent to VSS, and give you a
+chance to directly answer any questions that VSS may have, such as "This file
+has changed, Undo check out and lose changes?(Y/N)".
+
+To diff the working file with the one checked into VSS, use the ":SS Diff"
+command.  The differences are displayed using the built-in VIM diff utility.
+Change the 'ssDiffVertical' setting to display the difference vertically or
+horizontally.  See also |sourcesafe-diff|.
+
+VIM automatically changes a few editing options when entering diff mode.  When
+leaving diff mode, this script tries to restore those settings automatically.
+However, VIM is not able to restore the |foldmethod| to its previous state on
+its own.
+
+							*sourcesafe-special-note*
+NOTE: The "Editor for viewing files" field in VSS->Tools->Options->General
+must be blank in VSS for the VIM diff utility to work.  Otherwise the file
+will be opened in the listed editor rather than redirected to a temporary
+file.  Also, so that comments can be added when checking in code, be sure
+that an editor is listed in VSS->Tools->Options->Command Line Options, and
+the "Use editor to prompt for comments" option is selected,
+
+The current lock status is available from the SSGetLockStatus() function and is
+updated whenever a file is opened and after most "SS" commands.  This function
+is useful for placing the file status somewhere in the vim window.  The status
+can be updated manually with the ":SS Status" command.  Examples of placing it
+in the ruler are shown in the |sourcesafe-ruler| section.
+
+							*sourcesafe-showall*
+A summary of all the files checked out by the current user will be listed with
+the ":SS ShowAll" command.  Simple VSS operations can be performed on the
+listed files, both in normal and visual mode.
+
+The most common commands are also available in the menu.  See |ssMenuPath|
+
+This script is most useful when the directory structure defined in VSS closely
+reflects your local directory structure.  See |sourcesafe-local-tree| for
+setting your local top directory.
+
+==============================================================================
+2. Setup						*sourcesafe-setup*
+
+These three settings MUST be set before using sourceSafe.vim.  A good place to
+put these settings is in your |vimrc| file.
+
+							*SSDIR*
+							*sourcesafe-SSDIR*
+							*sourcesafe-database*
+This setting is actually an environment variable; it is used to tell VSS where
+the database is.  The path to your database can be found in VSS under
+File->Open SourceSafe Database.  Note the $ before the variable name. >
+  let $SSDIR="//gamma/swdev/src/jrave"
+<
+							*ssLocalTree*
+							*sourcesafe-local-tree*
+Files are referenced in VSS like this:
+
+$/the/path/to/your/file
+
+So in order to match the path of the local file to the format above, the top-level
+directory must be changed to "$".
+For example, if the current file is
+
+  C:/dev/project/main.c
+
+then "C:/dev" would need to transmorgify into $ in order to check the status
+of the currently opened file, since the following VSS command would need to be
+sent:
+
+  ss Status $/project/main.c
+
+The following substitute pattern will change to "$" for these commands, so
+set it to the top level of your local tree. >
+  let ssLocalTree="C:\\\\dev"
+<   or simply: >
+  let ssLocalTree="C:.dev"
+
+This also works well: >
+  let ssLocalTree=".*dev[0-9.]*"
+
+NOTE: These do NOT work: >
+  let ssLocalTree="C:\dev"
+  let ssLocalTree="C:\\dev"
+  let ssLocalTree="C:/dev"
+<
+							*ssUserName*
+Since VSS needs to know your username for various commands, set ssUserName to
+your user name.  Note that VSS is case sensitive! >
+  let ssUserName="Sifl"
+
+==============================================================================
+3. Customization					*sourcesafe-customize*
+
+							*ssSetRuler*
+							*sourcesafe-ruler*
+The current lock status is available from the SSGetLockStatus() command.  A
+really useful place to put this info is in the ruler, like so: >
+  set rulerformat=%{SSGetLockStatus()}
+
+If the |rulerformat| setting is empty, sourceSafe.vim will change it to this: >
+  set rulerformat=%60(%=%{SSGetLockStatus()}%)\ %4l,%-3c\ %3p%%
+
+To keep the plugin from changing this setting, then set rulerformat to
+something else or set the ssSetRuler option to 0.
+
+							*ssShowAllLocks*
+The ssShowAllLocks option changes the return value of SSGetLockStatus() to
+either list everyone who has this file checked out, or only indicate if you
+have this file checked out, which saves space if you don't care who. >
+  let ssShowAllLocks=1   " list everyone (default)
+  let ssShowAllLocks=0   " list only you
+<
+SSGetLockStatus() can also display extra information with this setting. >
+  let ssShowExtra=1  " display outdated (old) or exclusive (exc) lock status
+  let ssShowExtra=0  " don't show extra info.  Saves space. (default)
+<
+							*ssDiffVertical*
+When using the built-in diff feature... >
+  let ssDiffVertical=1  " to split the windows vertically (default)
+  let ssDiffVertical=0  " to split horizontally
+<
+							*ssQuietMode*
+In the ShowAll window and the VSS menu, this is the initial interaction
+setting. You can always change the mode during a vim session. >
+  let ssQuietMode=1    " Quiet (default)
+  let ssQuietMode=0    " Interactive
+<
+							*ssMenuPath*
+							*sourcesafe-menus*
+Set ssMenuPath to the location for the VSS-menu.  Suggestions:  >
+  let ssMenuPath="Plugin."   " Display under the Plugin menu. (default)
+  let ssMenuPath="PopUp."    " Display in the popup menu.  The popup menu
+			     " opens when right-clicking anywhere in the VIM
+			     " window.
+  let ssMenuPath=""          " Display under its own menu (VSS)
+  let ssMenuPath="Tools."    " Display under the Tools menu
+<
+It's also useful to tear off the menu.  See |:tearoff|
+
+							*ssMapLeader*
+							*sourcesafe-mapleader*
+If you do not like the default command mappings, i.e. ",co" for "Check Out",
+then change the mapleader setting to your liking. See |mapleader|. >
+  let mapleader = ",c"
+
+==============================================================================
+4. Commands						*sourcesafe-commands*
+							*sourcesafe-keymappings*
+None of these commands will be mapped if a previous mapping already exists.
+See VSS help for all available commands and command switches.
+
+Check out (and lock) current file from VSS. -I-Y means answer yes to any
+question VSS may ask, such as: "This file is already checked out, continue?" >
+  nmap <Leader>O :SS! Checkout<cr>
+  nmap <Leader>o :SS Checkout -I-Y<cr>
+
+Check in current file.  Adding a -K option keeps the file checked out. >
+  nmap <Leader>I :SS! Checkin<cr>
+  nmap <Leader>i :SS Checkin -I-Y<cr>
+
+Undo the checkout status of the current file.  -I-Y means answer yes to any
+question VSS may ask, such as: "Undo Changes?" >
+  nmap <Leader>U :SS! Undocheckout<cr>
+  nmap <Leader>u :SS Undocheckout -I-Y<cr>
+
+Get the latest version of this file.  Does not lock the file. >
+  nmap <Leader>G :SS! Get<cr>
+  nmap <Leader>g :SS Get<cr>
+
+Updates the locked status of this file. >
+  nmap <Leader>S :SS! Status<cr>
+  nmap <Leader>s :SS Status<cr>
+<
+							*sourcesafe-diff*
+Compares differences, unix-like.  See |sourcesafe-special-note| for important
+configuration information. >
+  nmap <Leader>D :SS! Diff -DU<cr>
+  nmap <Leader>d :SS Diff<cr>
+
+This is really useful for editing the source file in place.  To aid with diff
+editing, the following mappings have been added to the temporary file: >
+  nmap <buffer> > :diffput<cr>
+  vmap <buffer> > :diffput<cr>
+
+This command is not part of the VSS command line, but is formatted like the
+others for uniformity. >
+  nmap <Leader>A :SS! ShowAll<cr>
+  nmap <Leader>a :SS ShowAll<cr>
+<
+
+
+ vim:tw=78:fo=tcq2:ts=8:sw=8:noexpandtab:noet
