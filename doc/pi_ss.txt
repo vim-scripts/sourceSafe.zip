@@ -1,7 +1,7 @@
 *pi_ss.txt*     Interact with Microsoft's Visual Source Safe
 
-                    SOURCESAFE.VIM REFERENCE MANUAL    by David Eggum
-		    For Vim version 6.0.  Last change: 2001 Sept 07
+                    SOURCESAFE.VIM REFERENCE MANUAL    by David S. Eggum
+		    For Vim version 6.0.  Last change: 2001 Sept 13
 
 							*sourcesafe*
 sourceSafe.vim - Interfaces with the MS VSS command line.  This script

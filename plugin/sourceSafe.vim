@@ -1,11 +1,15 @@
-" Author: David Eggum <davide@simutech.com>
-" Last Update: Sept 10 2001
-" Version: 1.4
+" Author: David S. Eggum <email: TBD>
+" Last Update: Sept 13 2001
+" Version: 1.4a
 " 
 " sourceSafe.vim - Interfaces with the MS VSS command line.  This script is
 " not meant to be a full replacement of the VSS GUI, but instead it provides a
 " shortcut to the most frequently used operations such as checkin, checkout,
 " get current file, check differences, and so on.
+"
+" Special Note:
+" I am unable to give further support until I am able to get back online.
+" If you find bugs, please try to fix and post them on your own.
 "
 " Setup:
 "   There has been some talk in the VIM community about simplifying script
@@ -24,6 +28,15 @@
 "
 " Updates:
 " The latest version is available at vim.sourceforge.net
+" 1.4a
+"   Minor Features:
+"     - Speedup: SS Status now looks for a local vssver.scc file before
+"       requesting for the current lock status.  (Colman Curtin)
+"     - Added ssLocalDB option.  (Vince Negri)
+"     - Added ssExecutable option to specify the path to ss.exe.  (Vince Negri)
+"   Bug Fixes:
+"     - s:getFile() didn't return the filename correctly in some cases.
+"       Reminder to self: Don't add features just before a release!  :~|
 " 1.4
 "   Major Features:
 "     - Added online help.
@@ -87,14 +100,22 @@ if exists("loaded_sourcesafe")
 endif
 let loaded_sourcesafe=1
 
-if !exists("$SSDIR")
-   echom "sourceSafe.vim: $SSDIR is not set. See :help SSDIR"
-   finish
+if !exists("ssLocalDB")
+   let ssLocalDB=0
 endif
 
-if !exists("ssLocalTree")
-   echom "sourceSafe.vim: ssLocalTree is not set. See :help ssLocalTree"
-   finish
+if ssLocalDB
+   let ssLocalTree=""
+else
+   if !exists("$SSDIR")
+      echom "sourceSafe.vim: $SSDIR is not set. See :help SSDIR"
+      finish
+   endif
+
+   if !exists("ssLocalTree")
+      echom "sourceSafe.vim: ssLocalTree is not set. See :help ssLocalTree"
+      finish
+   endif
 endif
 
 if !exists("ssUserName")
@@ -103,6 +124,10 @@ if !exists("ssUserName")
 endif
 
 " Set defaults
+if !exists("ssExecutable")
+   let ssExecutable="ss"
+endif
+
 if !exists("ssShowAllLocks")
    let ssShowAllLocks=1
 endif
@@ -225,12 +250,18 @@ endfunction
 
 " get the current lock status from VSS and place it in b:checked_out_status
 function s:UpdateStatus(bang,cmd_args,filename)
-   let sCmd = "ss ".a:cmd_args." ".s:GetSSName(a:filename)
+   let sCmd = g:ssExecutable." ".a:cmd_args." ".s:GetSSName(a:filename)
    if a:bang == "!" " Raw VSS interaction
       exec "!".sCmd
       return
    endif
 
+   " speedup: we know the file is not in VSS if a local vssver.scc doesn't
+   " exist.  (Colman Curtin)
+   if !filereadable(fnamemodify(a:filename,":p:h").'\vssver.scc')
+      let b:checked_out_status = "Not in VSS"
+      return
+   endif
    let sFull = system(sCmd)
    let sLine = sFull
    if (match(sFull,"No checked out files found.") == 0)
@@ -239,8 +270,6 @@ function s:UpdateStatus(bang,cmd_args,filename)
    elseif (match(sFull,"is not valid SourceSafe syntax") != -1 || 
             \match(sFull,"is not an existing filename or project") != -1 ||
             \match(sFull,"has been deleted") != -1)
-      " may occur when a file is checked that is not in the top
-      " level of the development tree
       let b:checked_out_status = "Not in VSS"
       return b:checked_out_status
    elseif (strlen(sFull) == 0)
@@ -329,7 +358,7 @@ function s:Generic(bang,cmd_args,filename,bExternal)
       call s:showAll(a:bang)
       return
    endif
-   let sCmd = "ss ".a:cmd_args." ".s:GetSSName(a:filename)." -GL".fnamemodify(a:filename,":h")
+   let sCmd = g:ssExecutable." ".a:cmd_args." ".s:GetSSName(a:filename)." -GL".fnamemodify(a:filename,":h")
    if a:bang == "!" " Raw VSS interaction
       exec "!".sCmd
       if a:bExternal == 0
@@ -412,7 +441,7 @@ endfunction
 
 function s:Diff(bang,cmd_args,filename,bSummary)
    if a:bang == "!" " Raw VSS interaction
-      exec "!ss Diff" a:cmd_args s:GetSSName(a:filename) a:filename
+      exec "!".g:ssExecutable." Diff" a:cmd_args s:GetSSName(a:filename) a:filename
       return
    endif
 
@@ -429,7 +458,7 @@ function s:Diff(bang,cmd_args,filename,bSummary)
    let s:wrap = &wrap
 
    let sFile = tempname().".".fnamemodify(a:filename,":e") " append same extention for syntax highlighting
-   call system("ss View ".a:cmd_args." -O".sFile." ".s:GetSSName(a:filename))
+   call system(g:ssExecutable." View ".a:cmd_args." -O".sFile." ".s:GetSSName(a:filename))
 
    let sFull = system("diff -q ".sFile." ".a:filename)
    if (strlen(sFull) > 0)
@@ -478,7 +507,7 @@ endfunction
 
 " show all files locked by the current user
 function s:showAll(bang)
-   let sCmd = "ss Status $/ -R -U"
+   let sCmd = g:ssExecutable." Status $/ -R -U"
    if a:bang == "!"
       exec "!".sCmd
       return
@@ -612,7 +641,7 @@ function s:getFile(spot)
       let sPart = matchstr(sAll,"^\\zs.\\{-1,}\\ze[\n]")
       let iPos = 0
       while (sPart != "")
-         let sFull = system("ss Status ".s:GetSSName(sPart)." -U".g:ssUserName)
+         let sFull = system(g:ssExecutable." Status ".s:GetSSName(sPart)." -U".g:ssUserName)
          if (match(sFull,"No files found checked out by ".g:ssUserName) == 0)
             let iPos = iPos + strlen(sPart) + 1
             let sPart = matchstr(sAll,"^\\zs.\\{-1,}\\ze[\n]",iPos)
@@ -627,6 +656,7 @@ function s:getFile(spot)
          endif
       endwhile
    endif
+   return sFull
 endfunction
 
 function <SID>EditFile(iMode)
@@ -712,7 +742,11 @@ function <SID>Diffical()
    endif
 endfunction
 
-command! -bang -nargs=+ SS call s:Generic(<q-bang>,<q-args>,expand("%:p"),0)
+if ssLocalDB
+   command! -bang -nargs=+ SS call s:Generic(<q-bang>,<q-args>,expand("%"),0)
+else
+   command! -bang -nargs=+ SS call s:Generic(<q-bang>,<q-args>,expand("%:p"),0)
+endif
 
 if g:ssQuietMode == 0
    call <SID>displayMenus("!")
