@@ -1,0 +1,9 @@
+This is a mirror of http://www.vim.org/scripts/script.php?script_id=29
+
+Interfaces with Microsoft Visual SourceSafe and provides a shortcut to the most frequently used operations such as checkin, checkout, get current file, check differences, and so on.  Key features:
+- Takes advantage of Vim6.0's built-in diff feature for comparing the working version with the one in VSS.
+- Displays a list of all files checked out by the current user in a separate window.  Operations on multiple files can be done from this window.
+- The lock status of the current buffer is displayed in the status bar.
+- Online documentation.
+- Commands are available in the command line and the menubar.
+- Easy configuration.
